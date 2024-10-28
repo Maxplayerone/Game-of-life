@@ -86,6 +86,25 @@ time_left :: proc(timer: Timer) -> f32 {
 	return timer.max_time - timer.time
 }
 
+Cycle :: struct {
+	time:     f32,
+	max_time: f32,
+}
+
+create_cycle :: proc(max_time: f32) -> Cycle {
+	return Cycle{time = 0.0, max_time = max_time}
+}
+
+update_cycle :: proc(cycle: ^Cycle, dt: f32) -> bool {
+	cycle.time += dt
+	finished := false
+	if cycle.time >= cycle.max_time {
+		cycle.time = 0.0
+		finished = true
+	}
+	return finished
+}
+
 // text related utils
 @(private)
 fit_text_in_line :: proc(text: string, scale: int, width: f32, min_scale := 15) -> int {

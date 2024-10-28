@@ -16,46 +16,23 @@ GridHeight :: Height / CellSize
 GridSize :: GridWidth * GridHeight
 
 Game_Memory :: struct {
-	grid:         [GridSize]Cell,
-	back_grid:    [GridSize]Cell,
-	idx:          int,
-	time_btw_gen: Cycle,
+	grid: [GridSize]Cell,
+	idx:  int,
 }
 
 Cell :: struct {
-	alive: bool,
+	color: rl.Color,
 }
 
-step :: proc(cell: Cell, nb_count: int) -> Cell {
-	cell := cell
-	if nb_count < 2 {
-		cell.alive = false
-	}
-	if nb_count > 3 && cell.alive {
-		cell.alive = false
-	}
-	if nb_count == 3 && !cell.alive {
-		cell.alive = true
-	}
-	return cell
-}
+step :: proc(cell: ^Cell, neighbours: [8]int) {
 
-get_nb_count :: proc(i: int, grid: [GridSize]Cell) -> int {
-	nbs := get_neighbours(i)
-	nb_count := 0
-	for nb in nbs {
-		if nb != -1 && grid[nb].alive == true {
-			nb_count += 1
-		}
-	}
-	return nb_count
 }
 
 get_neighbours :: proc(idx: int) -> [8]int {
 	//top-tr-right-br-bottom-bl-left-tl
 	top := (idx - GridWidth) < 0 ? -1 : idx - GridWidth
 	right := (idx + 1) % GridWidth == 0 ? -1 : idx + 1
-	bottom := (idx + GridWidth) >= GridSize ? -1 : idx + GridWidth
+	bottom := (idx + GridWidth) > GridSize ? -1 : idx + GridWidth
 	left := idx % GridWidth == 0 ? -1 : idx - 1
 
 	tr := top != -1 && right != -1 ? idx - GridWidth + 1 : -1
@@ -83,7 +60,7 @@ grid_index_to_cell_pos :: proc(idx: int) -> rl.Vector2 {
 game_init_window :: proc() {
 	rl.InitWindow(1280, 720, "Game of life")
 	rl.SetWindowPosition(200, 200)
-	rl.SetTargetFPS(60)
+	rl.SetTargetFPS(500)
 }
 
 @(export)
@@ -94,30 +71,49 @@ game_init :: proc() {
 		idx = 1800,
 	}
 
-	//middle
-	g_mem.grid[g_mem.idx].alive = true
-	g_mem.grid[g_mem.idx - 1].alive = true
-	g_mem.grid[g_mem.idx - GridWidth].alive = true
-	g_mem.grid[g_mem.idx + GridWidth].alive = true
-	g_mem.grid[g_mem.idx + GridWidth + 1].alive = true
+	for i in 0 ..< GridSize {
+		g_mem.grid[i].color = rl.BLACK
+	}
 
-	g_mem.time_btw_gen = create_cycle(0.1)
+	g_mem.grid[g_mem.idx].color = rl.WHITE
 
 	game_hot_reloaded(g_mem)
 }
 
 @(export)
 game_update :: proc() -> bool {
-	dt := rl.GetFrameTime()
 
-	if update_cycle(&g_mem.time_btw_gen, dt) {
-		g_mem.back_grid = g_mem.grid
-		for i in 0 ..< GridSize {
-			g_mem.back_grid[i] = step(g_mem.grid[i], get_nb_count(i, g_mem.grid))
-		}
-		g_mem.grid = g_mem.back_grid
+	if rl.IsKeyPressed(.L) {
+		g_mem.idx += 1
 	}
 
+	if rl.IsKeyPressed(.J) {
+		g_mem.idx -= 1
+	}
+
+	if rl.IsKeyPressed(.D) {
+		g_mem.idx += 100
+	}
+
+	if rl.IsKeyPressed(.A) {
+		g_mem.idx -= 100
+	}
+
+	if rl.IsKeyPressed(.K) {
+		g_mem.idx += GridWidth
+	}
+
+	if rl.IsKeyPressed(.I) {
+		g_mem.idx -= GridWidth
+	}
+
+	if rl.IsKeyPressed(.S) {
+		g_mem.idx += GridWidth * 10
+	}
+
+	if rl.IsKeyPressed(.W) {
+		g_mem.idx -= GridWidth * 10
+	}
 
 	x := 0
 	y := 0
@@ -126,11 +122,8 @@ game_update :: proc() -> bool {
 		y = int(i / GridWidth)
 
 		rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
-		color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
-
-		rl.DrawRectangleRec(rect, color)
+		rl.DrawRectangleRec(rect, g_mem.grid[i].color)
 	}
-
 
 	rl.EndDrawing()
 
