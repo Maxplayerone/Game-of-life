@@ -1,6 +1,8 @@
 package game
 
 import "core:fmt"
+import "core:os"
+import "core:strings"
 import rl "vendor:raylib"
 
 _ :: fmt
@@ -16,10 +18,18 @@ GridHeight :: Height / CellSize
 GridSize :: GridWidth * GridHeight
 
 Game_Memory :: struct {
-	grid:         [GridSize]Cell,
-	back_grid:    [GridSize]Cell,
-	idx:          int,
-	time_btw_gen: Cycle,
+	grid:              [GridSize]Cell,
+	back_grid:         [GridSize]Cell,
+	idx:               int,
+	time_btw_gen:      Cycle,
+	scene:             Scene,
+	play_button:       rl.Rectangle,
+	play_button_color: rl.Color,
+}
+
+Scene :: enum {
+	Game,
+	Menu,
 }
 
 Cell :: struct {
@@ -79,9 +89,22 @@ grid_index_to_cell_pos :: proc(idx: int) -> rl.Vector2 {
 	return rl.Vector2{f32(x), f32(y)}
 }
 
+import_pattern :: proc(grid: ^[GridSize]Cell, filepath := "patterns/glider.cells") {
+	data, ok := os.read_entire_file(filepath, context.temp_allocator)
+	if !ok {
+		fmt.println("Could not read file ", filepath)
+		return
+	}
+
+	it := string(data)
+	for line in strings.split_lines_iterator(&it) {
+		fmt.println(line)
+	}
+}
+
 @(export)
 game_init_window :: proc() {
-	rl.InitWindow(1280, 720, "Game of life")
+	rl.InitWindow(1280, 720, "finite life")
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(60)
 }
@@ -102,36 +125,73 @@ game_init :: proc() {
 	g_mem.grid[g_mem.idx + GridWidth + 1].alive = true
 
 	g_mem.time_btw_gen = create_cycle(0.1)
+	g_mem.scene = .Menu
+	g_mem.play_button = {Width / 2 - 100, Height / 2 + 50, 200, 50}
 
 	game_hot_reloaded(g_mem)
+
+	import_pattern(&g_mem.grid)
 }
 
 @(export)
 game_update :: proc() -> bool {
 	dt := rl.GetFrameTime()
 
-	if update_cycle(&g_mem.time_btw_gen, dt) {
-		g_mem.back_grid = g_mem.grid
-		for i in 0 ..< GridSize {
-			g_mem.back_grid[i] = step(g_mem.grid[i], get_nb_count(i, g_mem.grid))
+	//updating
+	switch g_mem.scene {
+	case .Menu:
+		if collission_mouse_rect(g_mem.play_button) {
+			g_mem.play_button_color = rl.GRAY
+			if rl.IsMouseButtonPressed(.LEFT) {
+				g_mem.scene = .Game
+			}
+		} else {
+			g_mem.play_button_color = rl.WHITE
 		}
-		g_mem.grid = g_mem.back_grid
+	case .Game:
+		if update_cycle(&g_mem.time_btw_gen, dt) {
+			g_mem.back_grid = g_mem.grid
+			for i in 0 ..< GridSize {
+				g_mem.back_grid[i] = step(g_mem.grid[i], get_nb_count(i, g_mem.grid))
+			}
+			g_mem.grid = g_mem.back_grid
+		}
 	}
 
+	//rendering
+	switch g_mem.scene {
+	case .Menu:
+		//rendering the game at the back
+		x := 0
+		y := 0
+		for i in 0 ..< GridSize {
+			x = i % GridWidth
+			y = int(i / GridWidth)
 
-	x := 0
-	y := 0
-	for i in 0 ..< GridSize {
-		x = i % GridWidth
-		y = int(i / GridWidth)
+			rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
+			color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
 
-		rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
-		color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
+			rl.DrawRectangleRec(rect, color)
+		}
 
-		rl.DrawRectangleRec(rect, color)
+		rl.DrawRectangleRec({0.0, 0.0, Width, Height}, rl.Color{100, 100, 100, 100})
+		draw_text("Finite Life", {Width / 2 - 150, 25, 300, 75})
+		rl.DrawRectangleRec(g_mem.play_button, g_mem.play_button_color)
+	case .Game:
+		x := 0
+		y := 0
+		for i in 0 ..< GridSize {
+			x = i % GridWidth
+			y = int(i / GridWidth)
+
+			rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
+			color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
+
+			rl.DrawRectangleRec(rect, color)
+		}
 	}
 
-
+	free_all(context.temp_allocator)
 	rl.EndDrawing()
 
 	return !rl.WindowShouldClose()
