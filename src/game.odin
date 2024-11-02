@@ -1,16 +1,13 @@
 package game
 
 import "core:fmt"
+import "core:mem"
 import rl "vendor:raylib"
 
 _ :: fmt
 
 Width :: 1280
 Height :: 720
-
-center :: proc() -> rl.Vector2 {
-	return {Width / 2, Height / 2}
-}
 
 CellSize :: 16
 
@@ -20,11 +17,13 @@ GridHeight :: Height / CellSize
 GridSize :: GridWidth * GridHeight
 
 Game_Memory :: struct {
-	grid:         [GridSize]Cell,
-	back_grid:    [GridSize]Cell,
-	idx:          int,
-	time_btw_gen: Cycle,
-	camera:       rl.Camera2D,
+	//grid:         [GridSize]Cell,
+	//back_grid:    [GridSize]Cell,
+	//idx:          int,
+	grid:               [dynamic]rl.Vector2,
+	tracking_allocator: mem.Tracking_Allocator,
+	time_btw_gen:       Cycle,
+	camera:             rl.Camera2D,
 }
 
 Cell :: struct {
@@ -84,30 +83,40 @@ camera_moved_cells_offset :: proc(
 	return x, y
 }
 
+clamp_floor :: proc(v: rl.Vector2, val: f32) -> rl.Vector2 {
+	v := v
+	offset: rl.Vector2
+	if v.x < 0.0 {
+		offset.x = val
+	}
+	if v.y < 0.0 {
+		offset.y = val
+	}
+	v.x -= f32(int(v.x) % int(val)) + offset.x
+	v.y -= f32(int(v.y) % int(val)) + offset.y
+	return v
+}
+
 g_mem: ^Game_Memory
 
 @(export)
 game_init_window :: proc() {
 	rl.InitWindow(1280, 720, "finite life")
-	rl.SetWindowPosition(200, 200)
+	rl.SetWindowPosition(100, 100)
 	rl.SetTargetFPS(60)
 }
 
 @(export)
 game_init :: proc() {
 	g_mem = new(Game_Memory)
+	tracking_allocator: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&tracking_allocator, context.allocator)
+	context.allocator = mem.tracking_allocator(&tracking_allocator)
 
 	g_mem^ = Game_Memory {
-		idx = 1800,
 		camera = rl.Camera2D{zoom = 1.0},
+		tracking_allocator = tracking_allocator,
 	}
-
-	//middle
-	g_mem.grid[g_mem.idx].alive = true
-	g_mem.grid[g_mem.idx - 1].alive = true
-	g_mem.grid[g_mem.idx - GridWidth].alive = true
-	g_mem.grid[g_mem.idx + GridWidth].alive = true
-	g_mem.grid[g_mem.idx + GridWidth + 1].alive = true
 
 	g_mem.time_btw_gen = create_cycle(0.1)
 
@@ -119,7 +128,7 @@ game_update :: proc() -> bool {
 	dt := rl.GetFrameTime()
 	speed: f32 = 700
 
-	descreate_timesteps := false
+	//descreate_timesteps := false
 
 	if rl.IsKeyDown(.W) {
 		g_mem.camera.target.y -= speed * dt
@@ -134,6 +143,7 @@ game_update :: proc() -> bool {
 		g_mem.camera.target.x += speed * dt
 	}
 
+	/*
 	if descreate_timesteps {
 		if rl.IsKeyPressed(.U) && update_cycle(&g_mem.time_btw_gen, dt) {
 			g_mem.back_grid = g_mem.grid
@@ -151,12 +161,19 @@ game_update :: proc() -> bool {
 			g_mem.grid = g_mem.back_grid
 		}
 	}
+	*/
+
+	if rl.IsMouseButtonPressed(.LEFT) {
+		mouse_world := rl.GetScreenToWorld2D(rl.GetMousePosition(), g_mem.camera)
+		append(&g_mem.grid, clamp_floor(mouse_world, CellSize))
+	}
 
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLACK)
 
 	rl.BeginMode2D(g_mem.camera)
 
+	//grid
 	line_color := rl.Color{255, 255, 255, 125}
 	x, y := camera_moved_cells_offset(g_mem.camera, CellSize)
 	for i in x ..< GridWidth + x {
@@ -176,7 +193,12 @@ game_update :: proc() -> bool {
 			line_color,
 		)
 	}
+
+	//cells
 	rl.DrawRectangleRec({Width / 2 - 50, Height / 2 - 50, 100, 100}, rl.WHITE)
+	for cell in g_mem.grid {
+		rl.DrawRectangleRec({cell.x, cell.y, CellSize, CellSize}, rl.WHITE)
+	}
 
 	rl.EndMode2D()
 
@@ -188,7 +210,13 @@ game_update :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	delete(g_mem.grid)
 	free(g_mem)
+
+	for _, value in g_mem.tracking_allocator.allocation_map {
+		fmt.printf("%v: Leaked %v bytes\n", value.location, value.size)
+	}
+	free_all(context.temp_allocator)
 }
 
 @(export)

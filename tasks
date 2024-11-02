@@ -1,6 +1,3 @@
--main menu
--loading plaintext
--powieksz plain zeby nie bylo tylko screen size
--debug options (the simulation stops, you can move on step basis, add and remove cells etc)
--editor (you can place and remove nodes and save them to a plaintext file)
--choosing which plaintext file you are using
+-placing cells via mouse
+-simulating the pattern from the start
+-plaintext reader
