@@ -1,14 +1,16 @@
 package game
 
 import "core:fmt"
-import "core:os"
-import "core:strings"
 import rl "vendor:raylib"
 
 _ :: fmt
 
 Width :: 1280
 Height :: 720
+
+center :: proc() -> rl.Vector2 {
+	return {Width / 2, Height / 2}
+}
 
 CellSize :: 16
 
@@ -18,18 +20,11 @@ GridHeight :: Height / CellSize
 GridSize :: GridWidth * GridHeight
 
 Game_Memory :: struct {
-	grid:              [GridSize]Cell,
-	back_grid:         [GridSize]Cell,
-	idx:               int,
-	time_btw_gen:      Cycle,
-	scene:             Scene,
-	play_button:       rl.Rectangle,
-	play_button_color: rl.Color,
-}
-
-Scene :: enum {
-	Game,
-	Menu,
+	grid:         [GridSize]Cell,
+	back_grid:    [GridSize]Cell,
+	idx:          int,
+	time_btw_gen: Cycle,
+	camera:       rl.Camera2D,
 }
 
 Cell :: struct {
@@ -76,31 +71,20 @@ get_neighbours :: proc(idx: int) -> [8]int {
 	return {top, tr, right, br, bottom, bl, left, tl}
 }
 
+camera_moved_cells_offset :: proc(
+	camera: rl.Camera2D,
+	cell_size: f32,
+	start_target := rl.Vector2{0.0, 0.0},
+) -> (
+	int,
+	int,
+) {
+	x := int(camera.target.x / cell_size)
+	y := int(camera.target.y / cell_size)
+	return x, y
+}
+
 g_mem: ^Game_Memory
-
-grid_index_to_pos :: proc(idx: int) -> rl.Vector2 {
-	return grid_index_to_cell_pos(idx) * CellSize
-}
-
-grid_index_to_cell_pos :: proc(idx: int) -> rl.Vector2 {
-	x := idx % GridWidth
-	y := idx / GridWidth
-
-	return rl.Vector2{f32(x), f32(y)}
-}
-
-import_pattern :: proc(grid: ^[GridSize]Cell, filepath := "patterns/glider.cells") {
-	data, ok := os.read_entire_file(filepath, context.temp_allocator)
-	if !ok {
-		fmt.println("Could not read file ", filepath)
-		return
-	}
-
-	it := string(data)
-	for line in strings.split_lines_iterator(&it) {
-		fmt.println(line)
-	}
-}
 
 @(export)
 game_init_window :: proc() {
@@ -115,6 +99,7 @@ game_init :: proc() {
 
 	g_mem^ = Game_Memory {
 		idx = 1800,
+		camera = rl.Camera2D{zoom = 1.0},
 	}
 
 	//middle
@@ -125,30 +110,39 @@ game_init :: proc() {
 	g_mem.grid[g_mem.idx + GridWidth + 1].alive = true
 
 	g_mem.time_btw_gen = create_cycle(0.1)
-	g_mem.scene = .Menu
-	g_mem.play_button = {Width / 2 - 100, Height / 2 + 50, 200, 50}
 
 	game_hot_reloaded(g_mem)
-
-	import_pattern(&g_mem.grid)
 }
 
 @(export)
 game_update :: proc() -> bool {
 	dt := rl.GetFrameTime()
+	speed: f32 = 700
 
-	//updating
-	switch g_mem.scene {
-	case .Menu:
-		if collission_mouse_rect(g_mem.play_button) {
-			g_mem.play_button_color = rl.GRAY
-			if rl.IsMouseButtonPressed(.LEFT) {
-				g_mem.scene = .Game
+	descreate_timesteps := false
+
+	if rl.IsKeyDown(.W) {
+		g_mem.camera.target.y -= speed * dt
+	}
+	if rl.IsKeyDown(.S) {
+		g_mem.camera.target.y += speed * dt
+	}
+	if rl.IsKeyDown(.A) {
+		g_mem.camera.target.x -= speed * dt
+	}
+	if rl.IsKeyDown(.D) {
+		g_mem.camera.target.x += speed * dt
+	}
+
+	if descreate_timesteps {
+		if rl.IsKeyPressed(.U) && update_cycle(&g_mem.time_btw_gen, dt) {
+			g_mem.back_grid = g_mem.grid
+			for i in 0 ..< GridSize {
+				g_mem.back_grid[i] = step(g_mem.grid[i], get_nb_count(i, g_mem.grid))
 			}
-		} else {
-			g_mem.play_button_color = rl.WHITE
+			g_mem.grid = g_mem.back_grid
 		}
-	case .Game:
+	} else {
 		if update_cycle(&g_mem.time_btw_gen, dt) {
 			g_mem.back_grid = g_mem.grid
 			for i in 0 ..< GridSize {
@@ -158,41 +152,36 @@ game_update :: proc() -> bool {
 		}
 	}
 
-	//rendering
-	switch g_mem.scene {
-	case .Menu:
-		//rendering the game at the back
-		x := 0
-		y := 0
-		for i in 0 ..< GridSize {
-			x = i % GridWidth
-			y = int(i / GridWidth)
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLACK)
 
-			rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
-			color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
+	rl.BeginMode2D(g_mem.camera)
 
-			rl.DrawRectangleRec(rect, color)
-		}
-
-		rl.DrawRectangleRec({0.0, 0.0, Width, Height}, rl.Color{100, 100, 100, 100})
-		draw_text("Finite Life", {Width / 2 - 150, 25, 300, 75})
-		rl.DrawRectangleRec(g_mem.play_button, g_mem.play_button_color)
-	case .Game:
-		x := 0
-		y := 0
-		for i in 0 ..< GridSize {
-			x = i % GridWidth
-			y = int(i / GridWidth)
-
-			rect := rl.Rectangle{f32(x * CellSize), f32(y * CellSize), CellSize, CellSize}
-			color := g_mem.grid[i].alive ? rl.WHITE : rl.BLACK
-
-			rl.DrawRectangleRec(rect, color)
-		}
+	line_color := rl.Color{255, 255, 255, 125}
+	x, y := camera_moved_cells_offset(g_mem.camera, CellSize)
+	for i in x ..< GridWidth + x {
+		rl.DrawLineEx(
+			{CellSize * f32(i), f32(y) * CellSize},
+			{CellSize * f32(i), f32(y) * CellSize + Height},
+			1.0,
+			line_color,
+		)
 	}
+	//horizontal lines
+	for i in y ..< GridHeight + y {
+		rl.DrawLineEx(
+			{f32(x) * CellSize, CellSize * f32(i)},
+			{f32(x) * CellSize + Width, CellSize * f32(i)},
+			1.0,
+			line_color,
+		)
+	}
+	rl.DrawRectangleRec({Width / 2 - 50, Height / 2 - 50, 100, 100}, rl.WHITE)
 
-	free_all(context.temp_allocator)
+	rl.EndMode2D()
+
 	rl.EndDrawing()
+	free_all(context.temp_allocator)
 
 	return !rl.WindowShouldClose()
 }
